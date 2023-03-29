@@ -1,17 +1,15 @@
 terraform {
   required_providers {
     aws = {
-      version = "~>3.0"
-      source  = "hashicorp/aws"
+      # version = "~>3.0"
+      # source  = "hashicorp/aws"
     }
   }
 }
 
 provider "aws" {
-  region  = "eu-central-1"
   profile = "bulb"
-  access_key =  "AKIAULEIG5OHK4QQAXWA"
-  secret_key = "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"
+  region = "eu-central-1"
 }
 
 resource "aws_vpc" "webserver_vpc" {
@@ -28,7 +26,7 @@ resource "aws_vpc" "webserver_vpc" {
 resource "aws_subnet" "webserver_subnet" {
   vpc_id            = aws_vpc.webserver_vpc.id
   cidr_block        = cidrsubnet(aws_vpc.webserver_vpc.cidr_block, 3, 1)
-  availability_zone = "eu-central-1"
+  availability_zone = "eu-central-1a"
 
   tags = {
     Name = "webservers-subnets"
@@ -78,7 +76,7 @@ resource "aws_key_pair" "public_key" {
 }
 
 resource "aws_instance" "webserver" {
-  ami             = ""
+  ami             = "ami-00ad2436e75246bba"
   instance_type   = "t2.micro"
   key_name        = aws_key_pair.public_key.key_name
   security_groups = ["${aws_security_group.webserver_SG.id}"]
@@ -126,6 +124,7 @@ resource "aws_route_table_association" "webserver_RTB_AS" {
 
 locals {
   public_subnet_ids = aws_subnet.webserver_subnet.*.id
+  #public_subnet_ids_2 = aws_subnet.webserver_subnet.1.id
 }
 
 resource "aws_lb" "websever_lb" {
@@ -133,22 +132,27 @@ resource "aws_lb" "websever_lb" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.webserver_SG.id]
-  subnets          = local.public_subnet_ids
-
   enable_deletion_protection = true
-
-  access_logs {
-    bucket  = aws_s3_bucket.webserver_s3.id
-    prefix  = "test-lb"
-    enabled = true
+  subnet_mapping {
+    subnet_id = "subnet-0aed3168cf5f8fff3"
   }
+
+  subnet_mapping {
+    subnet_id = "subnet-07ba58843c4f1c884"
+  }
+
+  #access_logs {
+  #  bucket  = aws_s3_bucket.webserver_s3.id
+  #  prefix  = "test-lb"
+  #  enabled = true
+  #}
 
   tags = {
     Environment = "production"
   }
 }
 resource "aws_s3_bucket" "webserver_s3" {
-  bucket = "my-tf-test-bucket"
+  bucket = "obustest"
 
   tags = {
     Name        = "My bucket"
@@ -158,44 +162,60 @@ resource "aws_s3_bucket" "webserver_s3" {
 
 resource "aws_s3_bucket_acl" "example" {
   bucket = aws_s3_bucket.webserver_s3.id
-  acl    = "private"
+  acl    = "public-read"
 }
+#resource "aws_lb_listener" "front_end" {
+#  load_balancer_arn = aws_lb.websever_lb.id
+#  port              = "443"
+#  protocol          = "HTTP"
+#  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  #certificate_arn   = aws_acm_certificate.cert.arn
+
+#  default_action {
+#    type             = "forward"
+#    target_group_arn = aws_lb_target_group.webserver_TG.arn
+#  }
+#}
+
 resource "aws_lb_listener" "front_end" {
   load_balancer_arn = aws_lb.websever_lb.id
-  port              = "443"
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-2016-08"
-  certificate_arn   = aws_acm_certificate.cert.arn
+  port              = "80"
+  protocol          = "HTTP"
 
   default_action {
-    type             = "forward"
+    type = "forward"
     target_group_arn = aws_lb_target_group.webserver_TG.arn
-  }
-}
-
-resource "aws_lb_listener_certificate" "example" {
-  listener_arn    = aws_lb_listener.front_end.arn
-  certificate_arn = aws_acm_certificate.cert.arn
-}
-
-resource "aws_acm_certificate" "cert" {
-  domain_name       = "example.com"
-  validation_method = "DNS"
-
-  tags = {
-    Environment = "test"
+    # fixed_response {
+    #  content_type = "text/plain"
+    #  message_body = "Fixed response content"
+    #  status_code  = "200"
+    }
   }
 
-  lifecycle {
-    create_before_destroy = true
-  }
-}
+
+#resource "aws_lb_listener_certificate" "example" {
+#  listener_arn    = aws_lb_listener.front_end.arn
+#  certificate_arn = aws_acm_certificate.cert.arn
+#}
+
+#resource "aws_acm_certificate" "cert" {
+#  domain_name       = "example.com"
+#  validation_method = "DNS"
+
+#  tags = {
+#    Environment = "test"
+#  }
+
+#  lifecycle {
+#    create_before_destroy = true
+#  }
+#}
 
 resource "aws_lb_target_group" "webserver_TG" {
   name     = "tf-example-lb-tg"
   port     = 80
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = aws_vpc.webserver_vpc.id
 }
 
 resource "aws_lb_target_group_attachment" "test" {
